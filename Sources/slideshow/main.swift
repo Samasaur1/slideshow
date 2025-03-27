@@ -11,7 +11,7 @@ struct CommonArgs: ParsableArguments {
 
 let verbose: Bool
 let delay: Double
-let fileURLs: [String]
+let filePaths: [String]
 
 if isatty(STDIN_FILENO) == 1 {
     // This program's STDIN is attached to a terminal,
@@ -25,7 +25,7 @@ if isatty(STDIN_FILENO) == 1 {
 
     verbose = args.common.verbose
     delay = args.common.delay
-    fileURLs = args.files
+    filePaths = args.files
 } else {
     // This program's STDIN is not attached to a terminal,
     // which means that something was piped into it.
@@ -44,15 +44,15 @@ if isatty(STDIN_FILENO) == 1 {
         exit(2)
     }
 
-    fileURLs = input.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
+    filePaths = input.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
 }
+
+let fileURLs = filePaths.compactMap { URL(filePath: $0) }
 
 if verbose {
     print("Parsed arguments:")
     print("verbose:", verbose)
     print("delay:", delay)
-    print("first file:")
-    print(fileURLs[0])
 }
 
 extension Image {
@@ -111,7 +111,7 @@ struct SlideshowView: View {
     @Environment(\.scenePhase) var scenePhase
 
     @State var index: Int = 0
-    let files: [String]
+    let files: [URL]
     @State var delay: Double {
         didSet {
             if verbose {
@@ -154,7 +154,7 @@ struct SlideshowView: View {
         index -= 1
         if index == -1 { index = files.count - 1 }
         if verbose {
-            print(files[index])
+            print(files[index].relativePath)
         }
     }
     func pauseAction() {
@@ -164,7 +164,7 @@ struct SlideshowView: View {
         index += 1
         if index == files.count { index = 0 }
         if verbose {
-            print(files[index])
+            print(files[index].relativePath)
         }
     }
     func downAction() {
@@ -195,8 +195,7 @@ struct SlideshowView: View {
                     .keyboardShortcut(.downArrow, modifiers: [])
             }
             Group {
-                let s = files[index]
-                let url = URL(fileURLWithPath: s)
+                let url = files[index]
                 let image = try! Image(from: url)
                 image?.resizable().scaledToFit()
             }
@@ -212,7 +211,7 @@ struct SlideshowView: View {
                 }
             }
         }
-        .navigationTitle(files[index])
+        .navigationTitle(files[index].relativePath)
         .navigationDocument(files[index])
         .onAppear {
             self.restartTimer()

@@ -1,70 +1,59 @@
-#! /usr/bin/swift
+import ArgumentParser
+import Foundation
+import SwiftUI
 
-//
-// - This is just some AppKit boilerplate to launch a window.
-//
-import AppKit
-@available(OSX 10.15, *)
-class AppDelegate: NSObject, NSApplicationDelegate {
-    let window = NSWindow()
-    let windowDelegate = WindowDelegate()
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        let contentSize = NSSize(width:800, height:600)
-        window.setContentSize(contentSize)
-        // window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.level = .floating
-        window.delegate = windowDelegate
-        window.title = "Slideshow"
-        
-        let graph = NSHostingView(rootView: DemoView())
-        graph.frame = NSRect(origin: NSPoint(x:0, y:0), size: contentSize)
-        graph.autoresizingMask = [.height, .width]
-        window.contentView!.addSubview(graph)
-        window.center()
-        window.makeKeyAndOrderFront(window)
-    }
-    class WindowDelegate: NSObject, NSWindowDelegate {
-        func windowWillClose(_ notification: Notification) {
-            NSApplication.shared.terminate(0)
-        }
-    }
+struct CommonArgs: ParsableArguments {
+    @Flag var verbose: Bool = false
+    // TODO: I wish this was an option, but when I used the @Option type
+    // and set a value for this flag, the app wouldn't launch.
+    @Argument var delay: Double = 1
 }
 
-var fileURLs: [String] = []
-var delay: Double
 let verbose: Bool
+let delay: Double
+let fileURLs: [String]
+
 if isatty(STDIN_FILENO) == 1 {
-    print("isatty")
-    guard CommandLine.argc > 1 else {
-        print("If you don't pipe in files, you must put them on the command line!")
+    // This program's STDIN is attached to a terminal,
+    // which means nothing was piped in.
+    struct TtyArgs: ParsableArguments {
+        @OptionGroup var common: CommonArgs
+        @Argument var files: [String]
+    }
+
+    let args = TtyArgs.parseOrExit()
+
+    verbose = args.common.verbose
+    delay = args.common.delay
+    fileURLs = args.files
+} else {
+    // This program's STDIN is not attached to a terminal,
+    // which means that something was piped into it.
+    struct PipedArgs: ParsableArguments {
+        @OptionGroup var common: CommonArgs
+        // @Option var separator: String // TODO: support separators that aren't \0
+    }
+
+    let args = PipedArgs.parseOrExit()
+
+    verbose = args.common.verbose
+    delay = args.common.delay
+
+    guard let input = try? FileHandle.standardInput.readToEnd() else {
+        print("Cannot read input")
         exit(2)
     }
-    fileURLs = Array(CommandLine.arguments.dropFirst())
-    delay = 1
-    verbose = false
-} else {
-    print("noisatty")
-    let input = readLine()!
-    let zero = UnicodeScalar(0)!
-    let charzero = Character(zero)
-    fileURLs = input.split(separator: charzero).map(String.init)
 
-    delay = CommandLine.argc > 1 ? Double(CommandLine.arguments[1])! : 1
-    print("delay=\(delay)")
-    verbose = CommandLine.argc > 2
-    print("verbose=\(verbose)")
+    fileURLs = input.split(separator: 0).compactMap { String(data: $0, encoding: .utf8) }
 }
 
 if verbose {
+    print("Parsed arguments:")
+    print("verbose:", verbose)
+    print("delay:", delay)
+    print("first file:")
     print(fileURLs[0])
 }
-
-
-//
-// - This is the actual view.
-//
-import SwiftUI
 
 extension Image {
     init?(from data: Data) {
@@ -110,116 +99,150 @@ struct QLImage: NSViewRepresentable {
     typealias NSViewType = QLPreviewView
 }
 
-struct DemoView: View {
-    @State private var idx: Int = 0
-    var timer = Timer.publish(every: delay, on: .main, in: .common).autoconnect()
-    let images = fileURLs
-    @State var paused = false {
+            // Group {
+            //     let path = URL(fileURLWithPath: images[idx])
+            //     if path.pathExtension == "gif" {
+            //         QLImage(from: path)
+            //     } else {
+            //         try! Image(from: path)?.resizable().scaledToFit()
+            //     }
+            // }
+struct SlideshowView: View {
+    @Environment(\.scenePhase) var scenePhase
+
+    @State var index: Int = 0
+    let files: [String]
+    @State var delay: Double {
         didSet {
-            print("paused: \(paused)")
+            if verbose {
+                print("delay: \(oldValue) -> \(delay)")
+            }
+            restartTimer()
         }
     }
-    @State var interval: Double = delay
-    
-    func nextIdx() {
-        idx += 1
-        if idx == images.count { idx = 0 }
-        if verbose {
-            print(images[idx])
+    let verbose: Bool
+    @State var paused: Bool = false {
+        didSet {
+            if verbose {
+                print("paused: \(paused)")
+            }
+            restartTimer()
         }
     }
-    func prevIdx() {
-        idx -= 1
-        if idx == -1 { idx = images.count - 1 }
-        if verbose {
-            print(images[idx])
+    @State private var timerTask: Task<Void, Error>? = nil
+
+    func restartTimer() {
+        self.timerTask?.cancel()
+
+        guard !paused else { return }
+
+        self.timerTask = Task {
+            try await Task.sleep(for: .seconds(delay))
+            self.rightAction()
+            self.restartTimer()
         }
     }
 
-    func timerTick() {
-        guard !paused else {
-            return
+    func upAction() {
+        if self.delay <= 1 {
+            delay /= 2
+        } else {
+            delay -= 1
         }
-        nextIdx()
+    }
+    func leftAction() {
+        index -= 1
+        if index == -1 { index = files.count - 1 }
+        if verbose {
+            print(files[index])
+        }
+    }
+    func pauseAction() {
+        self.paused.toggle()
+    }
+    func rightAction() {
+        index += 1
+        if index == files.count { index = 0 }
+        if verbose {
+            print(files[index])
+        }
+    }
+    func downAction() {
+        if self.delay <= 1 {
+            delay *= 2
+        } else {
+            delay += 1
+        }
     }
 
-    func faster() {
-        if self.interval <= 1 {
-            interval /= 2
-        } else {
-            interval -= 1
-        }
-        // self.timer.invalidate()
-        // self.timer = Timer.publish(every: interval, on: .main, in: .common).autoconnect() 
-        if verbose {
-            print("faster")
-        }
-    }
-    func slower() {
-        if self.interval <= 1 {
-            interval *= 2
-        } else {
-            interval += 1
-        }
-        // self.timer.invalidate()
-        // self.timer = Timer.publish(every: interval, on: .main, in: .common).autoconnect() 
-        if verbose {
-            print("slower")
-        }
-    }
-    
     var body: some View {
         ZStack {
-            //earlier means lower Z index
             Group {
-            let path = URL(fileURLWithPath: images[idx])
-            if path.pathExtension == "gif" {
-                QLImage(from: path)
-            } else {
-                try! Image(from: path)?.resizable().scaledToFit()
+                Button { upAction() } label: { Color.clear }
+                    .buttonStyle(PlainButtonStyle())
+                    .keyboardShortcut(.upArrow, modifiers: [])
+                Button { leftAction() } label: { Color.clear }
+                    .buttonStyle(PlainButtonStyle())
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button { pauseAction() } label: { Color.clear }
+                    .buttonStyle(PlainButtonStyle())
+                    .keyboardShortcut(.space, modifiers: [])
+                Button { rightAction() } label: { Color.clear }
+                    .buttonStyle(PlainButtonStyle())
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+                Button { downAction() } label: { Color.clear }
+                    .buttonStyle(PlainButtonStyle())
+                    .keyboardShortcut(.downArrow, modifiers: [])
             }
+            Group {
+                let s = files[index]
+                let url = URL(fileURLWithPath: s)
+                let image = try! Image(from: url)
+                image?.resizable().scaledToFit()
             }
-            // try! Image(from: images[idx])?.resizable().scaledToFit()
             GeometryReader { geo in
                 VStack(spacing: 0) {
-                    /* Color.red.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ self.faster() }
+                    Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ upAction() }
                     HStack(spacing: 0) {
-                        Color.orange.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { self.prevIdx() }
-                        Color.yellow.contentShape(Rectangle()).onTapGesture { self.paused.toggle() }
-                        Color.green.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { self.nextIdx() }
+                        Color.clear.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { leftAction() }
+                        Color.clear.contentShape(Rectangle()).onTapGesture { pauseAction() }
+                        Color.clear.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { rightAction() }
                     }
-                    Color.blue.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ self.slower() } */
-                    Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ self.faster() }
-                    HStack(spacing: 0) {
-                        Color.clear.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { self.prevIdx() }
-                        Color.clear.contentShape(Rectangle()).onTapGesture { self.paused.toggle() }
-                        Color.clear.contentShape(Rectangle()).frame(width: geo.size.width * 0.2).onTapGesture { self.nextIdx() }
-                    }
-                    Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ self.slower() }
-                    /* Color.white.opacity(0.0001).frame(height: geo.size.height * 0.2).onTapGesture{ self.faster() }
-                    HStack(spacing: 0) {
-                        Color.white.opacity(0.0001).frame(width: geo.size.width * 0.2).onTapGesture { self.prevIdx() }
-                        Color.white.opacity(0.0001).onTapGesture { self.paused.toggle() }
-                        Color.white.opacity(0.0001).frame(width: geo.size.width * 0.2).onTapGesture { self.nextIdx() }
-                    }
-                    Color.white.opacity(0.0001).frame(height: geo.size.height * 0.2).onTapGesture{ self.slower() } */
+                    Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ downAction() }
                 }
             }
-            /* Button(action: { print(5) }) {
-                Spacer()
-            }
-            .opacity(0) */
         }
-        .onReceive(timer) { _ in self.timerTick() }
-        // .onTapGesture {
-        //     self.paused.toggle()
-        // }
+        .navigationTitle(files[index])
+        .navigationDocument(files[index])
+        .onAppear {
+            self.restartTimer()
+        }
     }
 }
-//
-// - More AppKit boilerplate.
-//
-let app = NSApplication.shared
-let del = AppDelegate()
-app.delegate = del
-app.run()
+struct MyScene: Scene {
+    @Environment(\.scenePhase) var scenePhase
+
+    var body: some Scene {
+        WindowGroup {
+            SlideshowView(files: fileURLs, delay: delay, verbose: verbose)
+                .onAppear {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+        }
+    }
+}
+struct MyApp: App {
+    @Environment(\.scenePhase) var scenePhase
+
+    var body: some Scene {
+        MyScene()
+    }
+}
+
+signal(SIGINT) { sig in
+    print() // clear line
+    exit(1)
+}
+
+NSApplication.shared.setActivationPolicy(.regular)
+MyApp.main()

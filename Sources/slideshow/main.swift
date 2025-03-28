@@ -99,14 +99,6 @@ struct QLImage: NSViewRepresentable {
     typealias NSViewType = QLPreviewView
 }
 
-            // Group {
-            //     let path = URL(fileURLWithPath: images[idx])
-            //     if path.pathExtension == "gif" {
-            //         QLImage(from: path)
-            //     } else {
-            //         try! Image(from: path)?.resizable().scaledToFit()
-            //     }
-            // }
 struct SlideshowView: View {
     @Environment(\.scenePhase) var scenePhase
 
@@ -194,8 +186,11 @@ struct SlideshowView: View {
             }
             Group {
                 let url = files[index]
-                let image = try! Image(from: url)
-                image?.resizable().scaledToFit()
+                if url.pathExtension == "gif" {
+                    QLImage(from: url)
+                } else {
+                    try! Image(from: url)?.resizable().scaledToFit()
+                }
             }
             GeometryReader { geo in
                 VStack(spacing: 0) {

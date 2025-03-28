@@ -55,26 +55,6 @@ if verbose {
     print("delay:", delay)
 }
 
-extension Image {
-    init?(from data: Data) {
-        if let img = NSImage(data: data) {
-            self.init(nsImage: img)
-        } else {
-            return nil
-        }
-    }
-
-    init?(from url: URL) throws {
-        let data = try Data(contentsOf: url)
-        self.init(from: data)
-    }
-
-    init?(from path: String) throws {
-        let url = URL(fileURLWithPath: path)
-        try self.init(from: url)
-    }
-}
-
 import Quartz
 struct QLImage: NSViewRepresentable {
     
@@ -97,6 +77,24 @@ struct QLImage: NSViewRepresentable {
     }
     
     typealias NSViewType = QLPreviewView
+}
+
+struct BetterImageView: View {
+    let url: URL
+
+    var body: some View {
+        Group {
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil)!
+            let count = CGImageSourceGetCount(source)
+            if count == 1 {
+                let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+                Image(nsImage: NSImage(cgImage: cgImage, size: .zero))
+                .resizable().scaledToFit()
+            } else {
+                QLImage(from: url)
+            }
+        }
+    }
 }
 
 struct SlideshowView: View {
@@ -184,14 +182,7 @@ struct SlideshowView: View {
                     .buttonStyle(PlainButtonStyle())
                     .keyboardShortcut(.downArrow, modifiers: [])
             }
-            Group {
-                let url = files[index]
-                if url.pathExtension == "gif" {
-                    QLImage(from: url)
-                } else {
-                    try! Image(from: url)?.resizable().scaledToFit()
-                }
-            }
+            BetterImageView(url: files[index])
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ upAction() }

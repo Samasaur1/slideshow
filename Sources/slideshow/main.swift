@@ -141,7 +141,7 @@ struct SlideshowView: View {
         }
     }
     func leftAction() {
-        index = (index - 1) % files.count
+        index = index == 0 ? files.count - 1 : index - 1
         if verbose {
             print(files[index].relativePath)
         }

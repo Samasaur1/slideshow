@@ -199,6 +199,9 @@ struct SlideshowView: View {
         .navigationDocument(files[index])
         .onAppear {
             self.restartTimer()
+            if verbose {
+                print(files[index].relativePath)
+            }
         }
     }
 }

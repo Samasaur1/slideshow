@@ -227,7 +227,7 @@ struct MyApp: App {
 
 signal(SIGINT) { sig in
     print() // clear line
-    exit(1)
+    exit(sig | 128)
 }
 
 NSApplication.shared.setActivationPolicy(.regular)

@@ -2,6 +2,13 @@ import ArgumentParser
 import Foundation
 import SwiftUI
 
+func +(lhs: CGSize, rhs: CGSize) -> CGSize {
+    var x = lhs
+    x.height += rhs.height
+    x.width += rhs.width
+    return x
+}
+
 struct CommonArgs: ParsableArguments {
     @Flag var verbose: Bool = false
     // TODO: I wish this was an option, but when I used the @Option type
@@ -88,8 +95,10 @@ struct BetterImageView: View {
             let count = CGImageSourceGetCount(source)
             if count == 1 {
                 let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)!
-                Image(nsImage: NSImage(cgImage: cgImage, size: .zero))
-                .resizable().scaledToFit()
+                let nsImage = NSImage(cgImage: cgImage, size: .zero)
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFit()
             } else {
                 QLImage(from: url)
             }
@@ -100,7 +109,14 @@ struct BetterImageView: View {
 struct SlideshowView: View {
     @Environment(\.scenePhase) var scenePhase
 
-    @State var index: Int = 0
+    @State var index: Int = 0 {
+        didSet {
+            self.scale = 1.0
+            self.lastScale = 0.0
+            self.offset = .zero
+            self.lastOffset = .zero
+        }
+    }
     let files: [URL]
     @State var delay: Double {
         didSet {
@@ -120,6 +136,11 @@ struct SlideshowView: View {
         }
     }
     @State private var timerTask: Task<Void, Error>? = nil
+
+    @State var scale = 1.0
+    @State var lastScale = 0.0
+    @State var offset: CGSize = .zero
+    @State var lastOffset: CGSize = .zero
 
     func restartTimer() {
         self.timerTask?.cancel()
@@ -183,6 +204,8 @@ struct SlideshowView: View {
                     .keyboardShortcut(.downArrow, modifiers: [])
             }
             BetterImageView(url: files[index])
+                .scaleEffect(self.scale)
+                .offset(self.offset)
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ upAction() }
@@ -197,6 +220,24 @@ struct SlideshowView: View {
         }
         .navigationTitle(files[index].relativePath)
         .navigationDocument(files[index])
+        .gesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    self.scale = self.lastScale + value - (lastScale == 0 ? 0 : 1)
+                }
+                .onEnded { _ in
+                    self.lastScale = self.scale
+                }
+            .simultaneously(
+                with: DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        self.offset = value.translation + lastOffset
+                    }
+                    .onEnded { _ in
+                        self.lastOffset = self.offset
+                    }
+            )
+        )
         .onAppear {
             self.restartTimer()
             if verbose {

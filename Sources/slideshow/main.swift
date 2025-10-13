@@ -113,7 +113,6 @@ struct SlideshowView: View {
     @State var index: Int = 0 {
         didSet {
             self.scale = 1.0
-            self.lastScale = 0.0
             self.offset = .zero
         }
     }
@@ -138,7 +137,6 @@ struct SlideshowView: View {
     @State private var timerTask: Task<Void, Error>? = nil
 
     @State var scale = 1.0
-    @State var lastScale = 0.0
     @State var offset: CGSize = .zero
 
     @State private var cancelables = Set<AnyCancellable>()
@@ -221,15 +219,6 @@ struct SlideshowView: View {
         }
         .navigationTitle(files[index].relativePath)
         .navigationDocument(files[index])
-        .gesture(
-            MagnificationGesture()
-                .onChanged { value in
-                    self.scale = self.lastScale + value - (lastScale == 0 ? 0 : 1)
-                }
-                .onEnded { _ in
-                    self.lastScale = self.scale
-                }
-        )
         .onAppear {
             registerScrollingEvents()
             self.restartTimer()
@@ -241,10 +230,27 @@ struct SlideshowView: View {
 
     func registerScrollingEvents() {
         NSApp.publisher(for: \.currentEvent)
-            .filter { $0?.type == .scrollWheel }
             .sink { event in
                 guard let event else { return }
-                self.offset = self.offset + CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+                switch event.type {
+                case .magnify:
+                    switch event.phase {
+                    case .ended:
+                        return
+                    default:
+                        self.scale += event.magnification
+                    }
+                case .smartMagnify:
+                    self.offset = .zero
+                    self.scale = 1.0
+                case .rotate:
+                    // Rotating is not yet supported
+                    return
+                case .scrollWheel:
+                    self.offset = self.offset + CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+                default:
+                    return
+                }
             }
             .store(in: &cancelables)
     }

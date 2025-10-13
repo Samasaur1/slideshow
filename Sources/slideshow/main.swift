@@ -1,4 +1,5 @@
 import ArgumentParser
+import Combine
 import Foundation
 import SwiftUI
 
@@ -114,7 +115,6 @@ struct SlideshowView: View {
             self.scale = 1.0
             self.lastScale = 0.0
             self.offset = .zero
-            self.lastOffset = .zero
         }
     }
     let files: [URL]
@@ -140,7 +140,8 @@ struct SlideshowView: View {
     @State var scale = 1.0
     @State var lastScale = 0.0
     @State var offset: CGSize = .zero
-    @State var lastOffset: CGSize = .zero
+
+    @State private var cancelables = Set<AnyCancellable>()
 
     func restartTimer() {
         self.timerTask?.cancel()
@@ -228,22 +229,24 @@ struct SlideshowView: View {
                 .onEnded { _ in
                     self.lastScale = self.scale
                 }
-            .simultaneously(
-                with: DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        self.offset = value.translation + lastOffset
-                    }
-                    .onEnded { _ in
-                        self.lastOffset = self.offset
-                    }
-            )
         )
         .onAppear {
+            registerScrollingEvents()
             self.restartTimer()
             if verbose {
                 print(files[index].relativePath)
             }
         }
+    }
+
+    func registerScrollingEvents() {
+        NSApp.publisher(for: \.currentEvent)
+            .filter { $0?.type == .scrollWheel }
+            .sink { event in
+                guard let event else { return }
+                self.offset = self.offset + CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+            }
+            .store(in: &cancelables)
     }
 }
 struct MyScene: Scene {

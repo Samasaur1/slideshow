@@ -203,8 +203,8 @@ struct SlideshowView: View {
                     .keyboardShortcut(.downArrow, modifiers: [])
             }
             BetterImageView(url: files[index])
-                .scaleEffect(self.scale)
                 .offset(self.offset)
+                .scaleEffect(self.scale)
             GeometryReader { geo in
                 VStack(spacing: 0) {
                     Color.clear.contentShape(Rectangle()).frame(height: geo.size.height * 0.2).onTapGesture{ upAction() }

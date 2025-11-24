@@ -247,7 +247,10 @@ struct SlideshowView: View {
                     // Rotating is not yet supported
                     return
                 case .scrollWheel:
-                    self.offset = self.offset + CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
+                    // scale pan by self.scale
+                    let dx = event.scrollingDeltaX / self.scale
+                    let dy = event.scrollingDeltaY / self.scale
+                    self.offset = self.offset + CGSize(width: dx, height: dy)
                 default:
                     return
                 }
